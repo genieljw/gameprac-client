@@ -8,7 +8,8 @@
     "start": "webpack-dev-server --config webpack/base.js --open"
   },
   "dependencies": {
-    "phaser": "^3.55.2"
+    "phaser": "^3.55.2",
+    "socket.io": "^4.8.1"
   },
   "devDependencies": {
     "@babel/core": "^7.18.2",

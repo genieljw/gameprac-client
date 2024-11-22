@@ -6,3 +6,42 @@
   <body>
   </body>
 </html>
+
+
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socket.IO Broadcast Example</title>
+    <script src="https://cdn.socket.io/4.6.0/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>Socket.IO Broadcast Example</h1>
+    <input type="text" id="messageInput" placeholder="Type a message">
+    <button id="sendButton">Send</button>
+    <ul id="messages"></ul>
+
+    <script>
+        const socket = io('http://localhost:3000');
+
+        // 메시지를 전송
+        document.getElementById('sendButton').onclick = () => {
+            const messageInput = document.getElementById('messageInput');
+            const message = messageInput.value;
+            if (message) {
+                socket.emit('message', message);
+                messageInput.value = ''; // 입력 필드 비우기
+            }
+        };
+
+        // 서버로부터 브로드캐스트된 메시지를 수신
+        socket.on('broadcast', (data) => {
+            const messagesList = document.getElementById('messages');
+            const listItem = document.createElement('li');
+            listItem.textContent = `[${data.sender}] ${data.message}`;
+            messagesList.appendChild(listItem);
+        });
+    </script>
+</body>
+</html> -->
