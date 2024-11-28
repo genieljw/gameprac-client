@@ -70,6 +70,9 @@ export default class PlayingScene extends Phaser.Scene {
     // 소켓 리스너 설정
     this.setupSocketListeners();
 
+    //+time+ 시간 동기화 시작
+    this.syncTimeWithServer();
+
     // 50ms마다 다른 플레이어의 위치 업데이트
     this.time.addEvent({
       delay: 50,
@@ -81,9 +84,17 @@ export default class PlayingScene extends Phaser.Scene {
 
 
   //공격 생성 함수
-  createBeam(startX, startY, target){
-    const beam = this.physics.add.sprite(startX, startY, 'beamTexture');    //시작 위치에서 beamTexture 스프라이트 생성
+  createBeam(startX, startY, target) {
+    const beam = this.physics.add.sprite(startX, startY, "beamTexture"); //시작 위치에서 beamTexture 스프라이트 생성
     this.physics.moveTo(beam, target.x, target.y, 300); // 빔 속도 설정
+
+    // 총알과 otherPlayersGroup 간 충돌 처리
+    this.physics.add.collider(beam, this.otherPlayersGroup, (beam, player) => {
+      console.log(`Player ${player.id} hit by beam!`);
+      this.socket.emit("playerHit", { playerId: player.id });
+      beam.destroy();
+    });
+
     this.time.delayedCall(1000, () => beam.destroy()); // 일정 시간 후 제거
     return beam;
   }
@@ -93,7 +104,7 @@ export default class PlayingScene extends Phaser.Scene {
 
     // 현재 플레이어 생성
     this.m_player = this.physics.add.sprite(x, y, "playerTexture");
-    this.m_player.setCollideWorldBounds(true); // 월드 경계 충돌
+    //this.m_player.setCollideWorldBounds(true); // 월드 경계 충돌
     this.m_player.id = playerId;
 
     // 충돌 처리 등록
@@ -123,6 +134,17 @@ export default class PlayingScene extends Phaser.Scene {
     // 추가 동작: 충돌 시 애니메이션, 점수 변경 등
   }
 
+  //+time+server-client 시간 동기화
+  syncTimeWithServer(){
+    this.socket.emit('requestServerTime', null, (serverTime)=>{
+      const clientTime = Date.now();
+      const latency = (clientTime - serverTime)/2;
+      this.serverTimeOffset = serverTime + latency;
+
+      console.log("Server time synchronized:", new Date(this.serverTimeOffset));
+    });
+  }
+
   startSendingPlayerData() {
     // 50ms마다 서버로 자신의 상태 전송
     console.log("start sending data");
@@ -150,6 +172,12 @@ export default class PlayingScene extends Phaser.Scene {
       this.m_background.setY(this.m_player.y - Config.height / 2);
       this.m_background.tilePositionX = this.m_player.x - Config.width / 2;
       this.m_background.tilePositionY = this.m_player.y - Config.height / 2;
+    }
+
+    //+time+서버시간 기준으로 클라 시간 업데이트
+    if (this.serverTimeOffset) {
+      const correctedTime = Date.now() + (this.serverTimeOffset - Date.now());
+      console.log("Corrected server time", new Date(correctedTime));
     }
   }
 
@@ -186,6 +214,7 @@ export default class PlayingScene extends Phaser.Scene {
         // 새로운 플레이어 추가
         if (!this.otherPlayers[playerId]) {
           const newPlayer = this.physics.add.image(x, y, 'playerTexture');
+          newPlayer.id = playerId; // 플레이어 객체에 ID 설정
           this.otherPlayers[playerId] = newPlayer;
 
           // 그룹에 추가
