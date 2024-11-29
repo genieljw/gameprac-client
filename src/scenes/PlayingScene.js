@@ -303,8 +303,17 @@ export default class PlayingScene extends Phaser.Scene {
 
     //+hp+ hp=0 제거처리
     this.socket.on("playerEliminated", (playerId)=>{
+      //나 제거
+      if(this.m_player && this.m_player.id === playerId){
+        console.log("You were eliminated!!");
+        this.m_player.destroy();
+        this.m_player.hpText.destroy();
+      }
+
+      //다른 플레이어 제거
       if(this.otherPlayers[playerId]){
         this.otherPlayers[playerId].destroy();
+        this.otherPlayers[playerId].hpText.destroy();
         delete this.otherPlayers[playerId];
         console.log(`Player ${playerId} eliminated.`);
       }
