@@ -59,10 +59,12 @@ export default class PlayingScene extends Phaser.Scene {
 
     // currentPlayer 데이터가 있을 경우에만 플레이어 생성
     if (this.playerData) {
+      console.log("Player Data:", this.playerData); // 디버깅용 로그
       this.setupPlayer(this.playerData);
     } else {
       // 만약 데이터가 아직 없을 경우, 나중에 데이터가 들어올 때 생성하도록 처리
       this.socket.on('currentPlayer', (data) => {
+        console.log("Received currentPlayer:", data); // 디버깅용 로그
         this.setupPlayer(data);
       });
     }
@@ -101,11 +103,19 @@ export default class PlayingScene extends Phaser.Scene {
 
   setupPlayer(data) {
     const { playerId, x, y } = data;
+    const hp = data.hp || 100; // `hp`가 없으면 기본값 100으로 설정
 
     // 현재 플레이어 생성
     this.m_player = this.physics.add.sprite(x, y, "playerTexture");
     //this.m_player.setCollideWorldBounds(true); // 월드 경계 충돌
     this.m_player.id = playerId;
+    this.m_player.hp = hp;  //hp설정
+
+    //+hp+ hp 텍스트 추가
+    this.m_player.hpText = this.add.text(x, y-20, `HP: ${hp}`,{
+      font: "16px Arial",
+      fill: "#ff0000",
+    }).setOrigin(0.5);
 
     // 충돌 처리 등록
     this.physics.add.collider(
@@ -134,16 +144,29 @@ export default class PlayingScene extends Phaser.Scene {
     // 추가 동작: 충돌 시 애니메이션, 점수 변경 등
   }
 
-  //+time+server-client 시간 동기화
+  //+time+ server-client 시간 동기화
   syncTimeWithServer(){
-    this.socket.emit('requestServerTime', null, (serverTime)=>{
-      const clientTime = Date.now();
-      const latency = (clientTime - serverTime)/2;
-      this.serverTimeOffset = serverTime + latency;
+    const clientTime = Date.now();
+    this.socket.emit('requestServerTime', clientTime, (serverTime)=>{
+      console.log("Raw serverTime received:", serverTime);
 
-      console.log("Server time synchronized:", new Date(this.serverTimeOffset));
+      const averageTime = (Date.now() + clientTime)/2;
+      this.serverTimeOffset = serverTime - averageTime;
+
+      console.log("Server time synchronized. Offset:", this.serverTimeOffset);
+      console.log("Corrected server time:", new Date(Date.now()));
     });
   }
+
+  //+hp+ 플레이어 제거 처리 함수
+  handlePlayerElimination() {
+    console.log("You were eliminated!");
+    this.m_player.destroy();
+    this.m_player.hpText.destroy();
+  
+    // 추가: 부활 로직 또는 게임 오버 화면 표시
+  }
+  
 
   startSendingPlayerData() {
     // 50ms마다 서버로 자신의 상태 전송
@@ -172,12 +195,17 @@ export default class PlayingScene extends Phaser.Scene {
       this.m_background.setY(this.m_player.y - Config.height / 2);
       this.m_background.tilePositionX = this.m_player.x - Config.width / 2;
       this.m_background.tilePositionY = this.m_player.y - Config.height / 2;
+
+      //+hp+ HP텍스트 위치 및 내용 업댓
+      if(this.m_player.hpText){
+        this.m_player.hpText.setPosition(this.m_player.x, this.m_player.y - 20);
+        this.m_player.hpText.setText(`HP: ${this.m_player.hp}`);
+      }
     }
 
     //+time+서버시간 기준으로 클라 시간 업데이트
     if (this.serverTimeOffset) {
-      const correctedTime = Date.now() + (this.serverTimeOffset - Date.now());
-      console.log("Corrected server time", new Date(correctedTime));
+      const correctedTime = Date.now() + this.serverTimeOffset;
     }
   }
 
@@ -248,11 +276,56 @@ export default class PlayingScene extends Phaser.Scene {
       }
 
     });
+
+    //+hp+ HP감소 처리 이벤트 처리
+    this.socket.on("playerHit", (data) =>{
+      const {playerId, hp} = data;
+
+      //currentplayer일 경우 처리
+      if(this.m_player && playerId === this.m_player.id){
+        this.m_player.hp = hp;  //현재 player hp 업댓
+        console.log(`You were hit! Current HP: ${hp}`);
+
+        if(hp <= 0){
+          this.handlePlayerElimination();
+        }
+        return;
+      }
+
+      if(this.otherPlayers[playerId]){
+        this.otherPlayers[playerId].hp = hp;
+        console.log(`Player ${playerId} was hit! HP: ${hp}`);
+      }
+    });
+
+    //+hp+ hp=0 제거처리
+    this.socket.on("playerEliminated", (playerId)=>{
+      if(this.otherPlayers[playerId]){
+        this.otherPlayers[playerId].destroy();
+        delete this.otherPlayers[playerId];
+        console.log(`Player ${playerId} eliminated.`);
+      }
+    });
   }
 
   updateOtherPlayers() {
     Object.values(this.otherPlayers).forEach((player) => {
+      if (!player) {
+        return; // 플레이어 객체가 undefined일 경우 생략
+      }
+      //위치 업댓
       player.setPosition(player.x, player.y);
+      
+      //hp없을 시 생성
+      if(!player.hpText){
+        player.hpText = this.add.text(player.x, player.y - 20, `HP: ${player.hp || 100}`, {
+          font: "16px Arial",
+          fill: "#ff0000",
+        }).setOrigin(0.5);
+      }
+      // HP 텍스트 위치와 내용 업데이트
+      player.hpText.setPosition(player.x, player.y - 20);
+      player.hpText.setText(`HP: ${player.hp || 100}`); // 기본값 100으로 설정
     });
   }
 }
