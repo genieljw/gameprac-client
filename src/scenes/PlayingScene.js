@@ -93,7 +93,10 @@ export default class PlayingScene extends Phaser.Scene {
     // 총알과 otherPlayersGroup 간 충돌 처리
     this.physics.add.collider(beam, this.otherPlayersGroup, (beam, player) => {
       console.log(`Player ${player.id} hit by beam!`);
-      this.socket.emit("playerHit", { playerId: player.id });
+      this.socket.emit("playerHit", { 
+        playerId: player.id,
+        damage: 10
+      });
       beam.destroy();
     });
 
@@ -133,7 +136,7 @@ export default class PlayingScene extends Phaser.Scene {
     this.startSendingPlayerData();
   }
 
-  //충돌 처리 함수
+  //충돌 처리 함수(player끼리)
   handlePlayerCollision(player1, player2) {
     console.log(`Collision detected between Player ${player1.id} and Player ${player2.id}`);
 
