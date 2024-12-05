@@ -1,7 +1,10 @@
 import Phaser from "phaser";
 import Config from "../Config";
-import Player, { Direction } from '../characters/Player';
-import io from 'socket.io-client';
+import SocketManager from "../socket/SocketManager";
+import InputManager from "../input/InputManager";
+import Player from "../state/Player";
+import BeamManager from "../state/Beam";
+
 
 export default class PlayingScene extends Phaser.Scene {
   constructor() {
@@ -11,45 +14,36 @@ export default class PlayingScene extends Phaser.Scene {
     this.otherPlayers = {};
 
     // Socket.IO 연결 설정
-    this.socket = io("ws://localhost:8081");
-    this.playerData = null;
+    this.socketManager = null;
 
-    // currentPlayer 이벤트 리스너 설정
-    this.socket.on('currentPlayer', (data) => {
-      console.log("current player", data);
-      this.playerData = data;
-    });
+    this.playerData = null;
+    this.beamManager = null;
   }
 
   create() {
     // 배경 설정
     this.m_background = this.add.tileSprite(0, 0, Config.width, Config.height, "background").setOrigin(0, 0);
+    // SocketManager 초기화
+    this.socketManager = new SocketManager(this);
+    // InputManager와 BeamManager 초기화
+    this.inputManager = new InputManager(this, this.m_player);
+    this.beamManager = new BeamManager(this, this.socketManager);
 
-    // 키 설정
-    this.m_cursorKeys = this.input.keyboard.addKeys({
-      up: Phaser.Input.Keyboard.KeyCodes.W,
-      down: Phaser.Input.Keyboard.KeyCodes.S,
-      left: Phaser.Input.Keyboard.KeyCodes.A,
-      right: Phaser.Input.Keyboard.KeyCodes.D,
-      space: Phaser.Input.Keyboard.KeyCodes.SPACE
-    });
+    
 
-    // 마우스 설정
+
+    // 마우스 설정 -> ??뺄 수 있을까??
     this.input.on('pointerdown', (pointer)=>{
       const target = {x: pointer.worldX, y: pointer.worldY};    //클릭 위치: 타겟 설정
-      this.createBeam(this.m_player.x, this.m_player.y, target);    //내 위치->타겟 빔 생성
-      this.socket.emit('shootBeam', {
+      const beam = this.beamManager.createBeam(this.m_player.x, this.m_player.y, target);    //내 위치->타겟 빔 생성
+      //충돌 처리 안됨
+      this.beamManager.handleBeamCollision(beam, this.otherPlayersGroup);
+      this.socketManager.sendShootBeam({
         x: this.m_player.x,
         y: this.m_player.y,   //발사체 시작 위치(내 위치)
         targetX: target.x,
         targetY: target.y   //발사체 목표 위치(마우스 클릭)
       });
-    });
-
-    this.socket.on('shootBeam', (data) =>{
-      if(data.playerId !== this.m_player.id){
-        this.addBeam(data.x, data.y);
-      }
     });
 
     //그룹 초기화
@@ -61,19 +55,17 @@ export default class PlayingScene extends Phaser.Scene {
     if (this.playerData) {
       console.log("Player Data:", this.playerData); // 디버깅용 로그
       this.setupPlayer(this.playerData);
-    } else {
-      // 만약 데이터가 아직 없을 경우, 나중에 데이터가 들어올 때 생성하도록 처리
-      this.socket.on('currentPlayer', (data) => {
-        console.log("Received currentPlayer:", data); // 디버깅용 로그
-        this.setupPlayer(data);
-      });
     }
-
-    // 소켓 리스너 설정
-    this.setupSocketListeners();
+    // else { //??어디로 옮겨갈 지 고민
+    //   // 만약 데이터가 아직 없을 경우, 나중에 데이터가 들어올 때 생성하도록 처리
+    //   this.socket.on('currentPlayer', (data) => {
+    //     console.log("Received currentPlayer:", data); // 디버깅용 로그
+    //     this.setupPlayer(data);
+    //   });
+    // }
 
     //+time+ 시간 동기화 시작
-    this.syncTimeWithServer();
+    this.socketManager.syncTimeWithServer();
 
     // 50ms마다 다른 플레이어의 위치 업데이트
     this.time.addEvent({
@@ -82,26 +74,6 @@ export default class PlayingScene extends Phaser.Scene {
       callbackScope: this,
       loop: true
     });
-  }
-
-
-  //공격 생성 함수
-  createBeam(startX, startY, target) {
-    const beam = this.physics.add.sprite(startX, startY, "beamTexture"); //시작 위치에서 beamTexture 스프라이트 생성
-    this.physics.moveTo(beam, target.x, target.y, 300); // 빔 속도 설정
-
-    // 총알과 otherPlayersGroup 간 충돌 처리
-    this.physics.add.collider(beam, this.otherPlayersGroup, (beam, player) => {
-      console.log(`Player ${player.id} hit by beam!`);
-      this.socket.emit("playerHit", { 
-        playerId: player.id,
-        damage: 10
-      });
-      beam.destroy();
-    });
-
-    this.time.delayedCall(1000, () => beam.destroy()); // 일정 시간 후 제거
-    return beam;
   }
 
   setupPlayer(data) {
@@ -113,12 +85,13 @@ export default class PlayingScene extends Phaser.Scene {
     //this.m_player.setCollideWorldBounds(true); // 월드 경계 충돌
     this.m_player.id = playerId;
     this.m_player.hp = hp;  //hp설정
+    this.m_player.speed = 160 //속도
 
     //+hp+ hp 텍스트 추가
     this.m_player.hpText = this.add.text(x, y-20, `HP: ${hp}`,{
       font: "16px Arial",
       fill: "#ff0000",
-    }).setOrigin(0.5);
+    }).setOrigin(0.5); //??setOrigin??
 
     // 충돌 처리 등록
     this.physics.add.collider(
@@ -147,20 +120,6 @@ export default class PlayingScene extends Phaser.Scene {
     // 추가 동작: 충돌 시 애니메이션, 점수 변경 등
   }
 
-  //+time+ server-client 시간 동기화
-  syncTimeWithServer(){
-    const clientTime = Date.now();
-    this.socket.emit('requestServerTime', clientTime, (serverTime)=>{
-      console.log("Raw serverTime received:", serverTime);
-
-      const averageTime = (Date.now() + clientTime)/2;
-      this.serverTimeOffset = serverTime - averageTime;
-
-      console.log("Server time synchronized. Offset:", this.serverTimeOffset);
-      console.log("Corrected server time:", new Date(Date.now()));
-    });
-  }
-
   //+hp+ 플레이어 제거 처리 함수
   handlePlayerElimination() {
     console.log("You were eliminated!");
@@ -172,26 +131,27 @@ export default class PlayingScene extends Phaser.Scene {
   
 
   startSendingPlayerData() {
-    // 50ms마다 서버로 자신의 상태 전송
     console.log("start sending data");
+
     this.time.addEvent({
       delay: 50,
       callback: () => {
         if (this.m_player) {
-          this.socket.emit('playerMove', {
+          this.socketManager.sendPlayerMove({
             x: this.m_player.x,
-            y: this.m_player.y
+            y: this.m_player.y,
           });
         }
       },
       callbackScope: this,
-      loop: true
+      loop: true,
     });
   }
 
   update() {
     if (this.m_player) {
-      this.handlePlayerMove();
+      const velocity = this.inputManager.getMovementInput(this.m_player.speed);
+      this.m_player.setVelocity(velocity.x, velocity.y);
 
       // 배경 움직임 설정
       this.m_background.setX(this.m_player.x - Config.width / 2);
@@ -212,132 +172,64 @@ export default class PlayingScene extends Phaser.Scene {
     }
   }
 
-  handlePlayerMove() {
-    const PLAYER_SPEED = 160; // 속도 설정
-    if (this.m_cursorKeys.left.isDown) {
-      this.m_player.setVelocityX(-PLAYER_SPEED);
-    } else if (this.m_cursorKeys.right.isDown) {
-      this.m_player.setVelocityX(PLAYER_SPEED);
-    } else {
-      this.m_player.setVelocityX(0);
-    }
-
-    if (this.m_cursorKeys.up.isDown) {
-      this.m_player.setVelocityY(-PLAYER_SPEED);
-    } else if (this.m_cursorKeys.down.isDown) {
-      this.m_player.setVelocityY(PLAYER_SPEED);
-    } else {
-      this.m_player.setVelocityY(0);
-    }
-  }
-
-  setupSocketListeners() {
-    this.socket.on('state', (state) => {
-      Object.keys(state).forEach((playerId) => {
-        const playerData = state[playerId];
-        const { x, y } = playerData;
-
-        // current player는 처리하지 않음
-        if (this.m_player && playerId === this.m_player.id) {
-          return;
-        }
-
-        // 새로운 플레이어 추가
-        if (!this.otherPlayers[playerId]) {
-          const newPlayer = this.physics.add.image(x, y, 'playerTexture');
-          newPlayer.id = playerId; // 플레이어 객체에 ID 설정
-          this.otherPlayers[playerId] = newPlayer;
-
-          // 그룹에 추가
-          this.otherPlayersGroup.add(newPlayer);
-
-          this.physics.add.collider(this.m_player, newPlayer);
-          console.log(`New player added: ${playerId}`);
-        }
-
-        // 기존 플레이어의 위치 업데이트
-        const player = this.otherPlayers[playerId];
-        player.setPosition(x, y);
-      });
-
-      // 더 이상 존재하지 않는 플레이어는 제거
-      Object.keys(this.otherPlayers).forEach((playerId) => {
-        if (!state[playerId]) {
-          this.otherPlayers[playerId].destroy();
-          delete this.otherPlayers[playerId];
-          console.log(`Player removed: ${playerId}`);
-        }
-      });
-    });
-
-    //server->client shootBeam 이벤트 수신(총알 발사 그리기)
-    this.socket.on('shootBeam', (data)=>{
-      if (data.playerId != this.m_player.id) {    //수신된 발사체 정보가 현재 플레이어가 아닐 때만 화면에 표시(이중 출력 방지)
-        this.createBeam(data.x, data.y, {x: data.targetX, y: data.targetY});
-        //다른 플레이어의 위치(data.x, data.y) => 발사체 생성
-        //발사체는 타겟 위치(data.targetX, data.targetY)를 향해 이동
-      }
-
-    });
-
-    //+hp+ HP감소 처리 이벤트 처리
-    this.socket.on("playerHit", (data) =>{
-      const {playerId, hp} = data;
-
-      //currentplayer일 경우 처리
-      if(this.m_player && playerId === this.m_player.id){
-        this.m_player.hp = hp;  //현재 player hp 업댓
-        console.log(`You were hit! Current HP: ${hp}`);
-
-        if(hp <= 0){
-          this.handlePlayerElimination();
-        }
+  updateOtherPlayersState(state) {
+    Object.keys(state).forEach((playerId) => {
+      const playerData = state[playerId];
+      const { x, y, hp } = playerData;
+  
+      if (this.m_player && playerId === this.m_player.id) {
         return;
       }
+  
+      if (!this.otherPlayers[playerId]) {
+        const newPlayer = this.physics.add.sprite(x, y, 'playerTexture');
+        newPlayer.id = playerId;
+        newPlayer.hp = hp || 100;
 
-      if(this.otherPlayers[playerId]){
-        this.otherPlayers[playerId].hp = hp;
-        console.log(`Player ${playerId} was hit! HP: ${hp}`);
+        // HP 텍스트 추가
+      newPlayer.hpText = this.add.text(x, y - 20, `HP: ${newPlayer.hp}`, {
+        font: "16px Arial",
+        fill: "#ff0000",
+      }).setOrigin(0.5);
+
+        this.otherPlayers[playerId] = newPlayer;
+        this.otherPlayersGroup.add(newPlayer);
+        this.physics.add.collider(this.m_player, newPlayer);
+      }
+  
+      const player = this.otherPlayers[playerId];
+      player.setPosition(x, y);
+      player.hp = hp||100;
+
+      // HP 텍스트 업데이트
+      if (player.hpText) {
+        player.hpText.setPosition(x, y - 20);
+        player.hpText.setText(`HP: ${player.hp}`);
       }
     });
-
-    //+hp+ hp=0 제거처리
-    this.socket.on("playerEliminated", (playerId)=>{
-      //나 제거
-      if(this.m_player && this.m_player.id === playerId){
-        console.log("You were eliminated!!");
-        this.m_player.destroy();
-        this.m_player.hpText.destroy();
-      }
-
-      //다른 플레이어 제거
-      if(this.otherPlayers[playerId]){
-        this.otherPlayers[playerId].destroy();
-        this.otherPlayers[playerId].hpText.destroy();
+  
+    Object.keys(this.otherPlayers).forEach((playerId) => {
+      if (!state[playerId]) {
+        const player =this.otherPlayers[playerId]; 
+        player.destroy();
+        if(player.hp) player.hpText.destroy();
         delete this.otherPlayers[playerId];
-        console.log(`Player ${playerId} eliminated.`);
       }
     });
   }
 
-  updateOtherPlayers() {
-    Object.values(this.otherPlayers).forEach((player) => {
-      if (!player) {
-        return; // 플레이어 객체가 undefined일 경우 생략
+  handlePlayerHit(playerId, hp) {
+    if (this.m_player && playerId === this.m_player.id) {
+      this.m_player.hp = hp;
+      if (hp <= 0) {
+        this.handlePlayerElimination();
       }
-      //위치 업댓
-      player.setPosition(player.x, player.y);
-      
-      //hp없을 시 생성
-      if(!player.hpText){
-        player.hpText = this.add.text(player.x, player.y - 20, `HP: ${player.hp || 100}`, {
-          font: "16px Arial",
-          fill: "#ff0000",
-        }).setOrigin(0.5);
-      }
-      // HP 텍스트 위치와 내용 업데이트
-      player.hpText.setPosition(player.x, player.y - 20);
-      player.hpText.setText(`HP: ${player.hp || 100}`); // 기본값 100으로 설정
-    });
+      return;
+    }
+  
+    if (this.otherPlayers[playerId]) {
+      this.otherPlayers[playerId].hp = hp;
+    }
   }
+
 }
