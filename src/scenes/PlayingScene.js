@@ -1,6 +1,5 @@
 import Phaser from "phaser";
 import Config from "../Config";
-import Player, { Direction } from '../characters/Player';
 import io from 'socket.io-client';
 
 export default class PlayingScene extends Phaser.Scene {
@@ -11,7 +10,7 @@ export default class PlayingScene extends Phaser.Scene {
     this.otherPlayers = {};
 
     // Socket.IO 연결 설정
-    this.socket = io("ws://localhost:8081");
+    this.socket = io("ws://:8081");
     this.playerData = null;
 
     // currentPlayer 이벤트 리스너 설정
@@ -37,19 +36,14 @@ export default class PlayingScene extends Phaser.Scene {
     // 마우스 설정
     this.input.on('pointerdown', (pointer)=>{
       const target = {x: pointer.worldX, y: pointer.worldY};    //클릭 위치: 타겟 설정
-      this.createBeam(this.m_player.x, this.m_player.y, target);    //내 위치->타겟 빔 생성
+      const beam = this.createBeam(this.m_player.x, this.m_player.y, target);    //내 위치->타겟 빔 생성
+      this.handleBeamCollision(beam, this.otherPlayersGroup);
       this.socket.emit('shootBeam', {
         x: this.m_player.x,
         y: this.m_player.y,   //발사체 시작 위치(내 위치)
         targetX: target.x,
         targetY: target.y   //발사체 목표 위치(마우스 클릭)
       });
-    });
-
-    this.socket.on('shootBeam', (data) =>{
-      if(data.playerId !== this.m_player.id){
-        this.addBeam(data.x, data.y);
-      }
     });
 
     //그룹 초기화
@@ -89,9 +83,13 @@ export default class PlayingScene extends Phaser.Scene {
   createBeam(startX, startY, target) {
     const beam = this.physics.add.sprite(startX, startY, "beamTexture"); //시작 위치에서 beamTexture 스프라이트 생성
     this.physics.moveTo(beam, target.x, target.y, 300); // 빔 속도 설정
+    this.time.delayedCall(1000, () => beam.destroy()); // 일정 시간 후 제거
+    return beam;
+  }
 
+  handleBeamCollision(beam, otherPlayersGroup){
     // 총알과 otherPlayersGroup 간 충돌 처리
-    this.physics.add.collider(beam, this.otherPlayersGroup, (beam, player) => {
+    this.physics.add.collider(beam, otherPlayersGroup, (beam, player) => {
       console.log(`Player ${player.id} hit by beam!`);
       this.socket.emit("playerHit", { 
         playerId: player.id,
@@ -99,11 +97,10 @@ export default class PlayingScene extends Phaser.Scene {
       });
       beam.destroy();
     });
-
-    this.time.delayedCall(1000, () => beam.destroy()); // 일정 시간 후 제거
-    return beam;
+  
   }
 
+  
   setupPlayer(data) {
     const { playerId, x, y } = data;
     const hp = data.hp || 100; // `hp`가 없으면 기본값 100으로 설정
@@ -330,14 +327,14 @@ export default class PlayingScene extends Phaser.Scene {
       
       //hp없을 시 생성
       if(!player.hpText){
-        player.hpText = this.add.text(player.x, player.y - 20, `HP: ${player.hp || 100}`, {
+        player.hpText = this.add.text(player.x, player.y - 20, `HP: ${player.hp}`, {
           font: "16px Arial",
           fill: "#ff0000",
         }).setOrigin(0.5);
       }
       // HP 텍스트 위치와 내용 업데이트
       player.hpText.setPosition(player.x, player.y - 20);
-      player.hpText.setText(`HP: ${player.hp || 100}`); // 기본값 100으로 설정
+      player.hpText.setText(`HP: ${player.hp}`); // 기본값 100으로 설정
     });
   }
 }
