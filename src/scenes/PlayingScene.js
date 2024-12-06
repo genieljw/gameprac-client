@@ -36,7 +36,7 @@ export default class PlayingScene extends Phaser.Scene {
     this.input.on('pointerdown', (pointer)=>{
       const target = {x: pointer.worldX, y: pointer.worldY};    //클릭 위치: 타겟 설정
       const beam = this.beamManager.createBeam(this.m_player.x, this.m_player.y, target);    //내 위치->타겟 빔 생성
-      //충돌 처리 안됨
+      //충돌 처리 안됨(socket 연결 잘못으로 추정->보류)
       this.beamManager.handleBeamCollision(beam, this.otherPlayersGroup);
       this.socketManager.sendShootBeam({
         x: this.m_player.x,
@@ -68,12 +68,12 @@ export default class PlayingScene extends Phaser.Scene {
     this.socketManager.syncTimeWithServer();
 
     // 50ms마다 다른 플레이어의 위치 업데이트
-    this.time.addEvent({
-      delay: 50,
-      callback: this.updateOtherPlayers,
-      callbackScope: this,
-      loop: true
-    });
+    // this.time.addEvent({
+    //   delay: 50,
+    //   callback: this.updateOtherPlayers,
+    //   callbackScope: this,
+    //   loop: true
+    // });
   }
 
   setupPlayer(data) {
@@ -86,6 +86,7 @@ export default class PlayingScene extends Phaser.Scene {
     this.m_player.id = playerId;
     this.m_player.hp = hp;  //hp설정
     this.m_player.speed = 160 //속도
+    //this.m_player.hitId = playerId;
 
     //+hp+ hp 텍스트 추가
     this.m_player.hpText = this.add.text(x, y-20, `HP: ${hp}`,{
@@ -186,11 +187,11 @@ export default class PlayingScene extends Phaser.Scene {
         newPlayer.id = playerId;
         newPlayer.hp = hp || 100;
 
-        // HP 텍스트 추가
-      newPlayer.hpText = this.add.text(x, y - 20, `HP: ${newPlayer.hp}`, {
-        font: "16px Arial",
-        fill: "#ff0000",
-      }).setOrigin(0.5);
+          // HP 텍스트 추가
+        newPlayer.hpText = this.add.text(x, y - 20, `HP: ${newPlayer.hp}`, {
+          font: "16px Arial",
+          fill: "#ff0000",
+        }).setOrigin(0.5);
 
         this.otherPlayers[playerId] = newPlayer;
         this.otherPlayersGroup.add(newPlayer);

@@ -1,7 +1,10 @@
+//import PlayingScene from "../scenes/PlayingScene";
+
 export default class BeamManager {
   constructor(scene, socket) {
     this.scene = scene;
     this.socket = socket;
+    
   }
 
   //공격 생성 함수(총알 그리기)
@@ -17,11 +20,13 @@ export default class BeamManager {
     // 총알과 otherPlayersGroup 간 충돌 처리
     this.scene.physics.add.collider(beam, otherPlayersGroup, (beam, player) => {
       console.log(`Player ${player.id} hit by beam!`);
-      this.socket.emit("playerHit", { 
+      //state update//
+      this.socket.socket.emit("playerHit", { 
         playerId: player.id,
         damage: 10,
       });
       beam.destroy();
+      beam = null;
     });
   }
 }
