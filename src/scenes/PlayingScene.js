@@ -33,6 +33,8 @@ export default class PlayingScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, Config.width * 2, Config.height);
     this.cameras.main.setBounds(0, 0, Config.width * 2, Config.height);
 
+    
+
     // 키 설정
     this.m_cursorKeys = this.input.keyboard.addKeys({
       up: Phaser.Input.Keyboard.KeyCodes.W,
@@ -59,18 +61,24 @@ export default class PlayingScene extends Phaser.Scene {
     this.otherPlayersGroup = this.physics.add.group({
       immovable: true, // 움직이지 않도록 설정
     });
-
+    
     // currentPlayer 데이터가 있을 경우에만 플레이어 생성
     if (this.playerData) {
       console.log("Player Data:", this.playerData); // 디버깅용 로그
       this.setupPlayer(this.playerData);
+      //미니맵 추가
+      this.createMinimap();
     } else {
       // 만약 데이터가 아직 없을 경우, 나중에 데이터가 들어올 때 생성하도록 처리
       this.socket.on('currentPlayer', (data) => {
         console.log("Received currentPlayer:", data); // 디버깅용 로그
         this.setupPlayer(data);
+        //미니맵 추가
+        this.createMinimap();
       });
     }
+
+    
 
     // 소켓 리스너 설정
     this.setupSocketListeners();
@@ -88,12 +96,28 @@ export default class PlayingScene extends Phaser.Scene {
   }
 
   //미니맵 생성
-  createMinimap(){
-    this.minimap = this.cameras.add(200, 10, 400, 100).setZoom(0.2).setName('mini');
+  createMinimap() {
+    this.minimap = this.cameras.add(Config.width - 200, 10, 200, 100).setZoom(0.2).setName('mini');
     this.minimap.setBackgroundColor(0x002244);
-    this.minimap.scrollX = 400;
-    this.minimap.scrollY = 300;
-  }
+
+    // 월드 크기 확인
+    this.minimap.setBounds(0, 0, Config.width * 2, Config.height);
+
+    // 배경 렌더링 무시
+    this.minimap.ignore(this.tile1);
+    this.minimap.ignore(this.tile2);
+    //플레이어 렌더링 무시
+    this.minimap.ignore(this.m_player);
+
+    // 그룹 무시 설정
+    this.otherPlayersGroup.children.each((player) => {
+        this.minimap.ignore(player);
+    });
+
+    // 플레이어 추적 설정
+    this.minimap.startFollow(this.m_player);
+}
+
 
   //공격 생성 함수
   createBeam(startX, startY, target) {
